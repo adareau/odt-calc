@@ -2,11 +2,11 @@
 '''
 Author   : alex
 Created  : 2020-10-13 17:06:38
-Modified : 2020-10-14 11:25:03
+Modified : 2020-10-14 15:25:36
 
 Comments : contains atomic data (for Helium)
 '''
-# -- import
+# -- imports
 import scipy.constants as csts
 import numpy as np
 

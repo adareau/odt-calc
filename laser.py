@@ -2,14 +2,15 @@
 '''
 Author   : alex
 Created  : 2020-10-13 17:25:42
-Modified : 2020-10-14 15:22:10
+Modified : 2020-10-14 15:33:36
 
 Comments : Implements the GaussianBeam class, to plot laser intensity easily
 '''
-# -- import
+# -- imports
 import numpy as np
 import matplotlib.pyplot as plt
 from numpy import pi
+
 
 # -- functions
 def intensity_gauss(r, z, w0, P=1, wavelength=1550e-9):
@@ -47,7 +48,8 @@ class GaussianBeam():
         self.waist_shift = 0  # to define a shift along the laser axis
         self.phi = 0  # angle of propagation in x/y plane
         self.theta = pi / 2  # angle of propagation, wrt z axis
-
+        # other
+        self.label = ''
         # -- initialize object
         # update attributes based on kwargs
         self.__dict__.update(kwargs)
@@ -158,4 +160,3 @@ if __name__ == '__main__':
         cax.set_xlabel('X')
         cax.set_ylabel('Z')
         plt.show()
-

@@ -2,14 +2,15 @@
 '''
 Author   : alex
 Created  : 2020-10-13 17:03:22
-Modified : 2020-10-14 11:21:45
+Modified : 2020-10-14 15:25:59
 
 Comments : some utility functions for ODT potential calculation
 '''
-
+# -- imports
 import numpy as np
 
 
+# -- functions
 def unit_str(x, prec=2, unit=''):
     if x == 0:
         return '0 %s' % unit
