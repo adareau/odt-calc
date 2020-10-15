@@ -2,7 +2,7 @@
 '''
 Author   : alex
 Created  : 2020-10-13 17:03:22
-Modified : 2020-10-14 17:25:40
+Modified : 2020-10-15 15:08:27
 
 Comments : some utility functions for ODT potential calculation
 '''
@@ -11,6 +11,8 @@ import numpy as np
 
 
 # -- functions
+
+# - units and scales
 def unit_str(x, prec=2, unit=''):
     if x == 0:
         return '0 %s' % unit
@@ -46,3 +48,5 @@ def unit_mult(x, unit=''):
     unit_string = _disp_prefixes[int(power)] + unit
     mult = 1 / 10 ** power
     return mult, unit_string
+
+# - 2D polynomial fit

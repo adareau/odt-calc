@@ -2,7 +2,7 @@
 '''
 Author   : alex
 Created  : 2020-10-13 17:28:20
-Modified : 2020-10-14 18:01:18
+Modified : 2020-10-15 15:01:56
 
 Comments : implements the Trap class, used for the calculation of optical
            dipole traps potential
@@ -12,6 +12,8 @@ import numpy as np
 import matplotlib.pyplot as plt
 from numpy import pi
 from scipy import constants as csts
+from skimage.measure import find_contours
+from scipy.optimize import brentq
 
 # local
 from atom import Helium
@@ -51,7 +53,7 @@ class Trap():
         assert unit in unit_factor.keys()
         mult = unit_factor[unit]
         # some declarations
-        potential = np.zeros_like(X * Y * Z)
+        potential = np.zeros_like(X * Y * Z, dtype=float)
         if yield_each_contribution:
             individual_potentials = {}
         # compute optical potential
@@ -74,19 +76,30 @@ class Trap():
         else:
             return potential
 
+    # -- analyze
+    def find_depth(self,
+                   spatial_range=(1e3, 1e3, 1e3),
+                   Npoints=(1000, 1000, 1000),
+                   center=(0, 0, 0),
+                   unit='µK',
+                   plot_result=True,
+                   style2D={'cmap': 'Spectral'}):
+        pass
+
+
     # -- plotting
     def plot_potential(self,
-                       plot_range=(1e3, 1e3, 1e3),
+                       spatial_range=(1e3, 1e3, 1e3),
                        Npoints=(1000, 1000, 1000),
                        center=(0, 0, 0),
                        unit='µK',
                        style2D={'cmap': 'Spectral'},
                        style1D={},
-                       Ncountour=6):
+                       Ncontour=6):
         # - compute
         # get params
         Nx, Ny, Nz = Npoints
-        xrange, yrange, zrange = plot_range
+        xrange, yrange, zrange = spatial_range
         x0, y0, z0 = center
         # 1D arrays
         x = np.linspace(-xrange, xrange, Nx) + x0
@@ -111,9 +124,12 @@ class Trap():
         ymult, ystr = unit_mult(yrange, 'm')
         zmult, zstr = unit_mult(zrange, 'm')
         # contour plot lines
-        Umin = XYu.min()
-        Umax = XYu.max()
-        contours = np.round(np.linspace(0, Umax - Umin, Ncountour))
+        if isinstance(Ncontour, (int, float)):
+            Umin = XYu.min()
+            Umax = XYu.max()
+            contours = np.linspace(0, Umax - Umin, Ncontour)
+        else:
+            contours = Ncontour
         print('Contours : ')
         print(contours)
 
@@ -193,4 +209,5 @@ if __name__ == '__main__':
                   phi=-9 * pi / 180,
                   label='PDH (retour)')
 
-    odt.plot_potential(plot_range=(1.5e-3, 500e-6, 500e-6))
+    odt.plot_potential(spatial_range=(1.5e-3, 500e-6, 500e-6))
+

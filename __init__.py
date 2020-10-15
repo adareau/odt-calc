@@ -2,9 +2,10 @@
 '''
 Author   : alex
 Created  : 2020-04-29 14:57:10
-Modified : 2020-10-13 17:21:03
+Modified : 2020-10-15 14:56:04
 
 Comments :
 '''
-from .utils import *
-from .atom import Helium
+import utils
+import atom
+from trap import Trap
