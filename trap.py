@@ -2,7 +2,7 @@
 '''
 Author   : alex
 Created  : 2020-10-13 17:28:20
-Modified : 2020-10-16 15:35:56
+Modified : 2020-10-16 16:54:04
 
 Comments : implements the Trap class, used for the calculation of optical
            dipole traps potential
@@ -19,7 +19,7 @@ from scipy.optimize import brentq
 from atom import Helium
 from laser import GaussianBeam
 from utils import unit_mult, unit_str, \
-                  polyval2D, polyfit2D, sortp, analyze_psort
+    polyval2D, polyfit2D, sortp, analyze_psort
 
 # == define atom data dictionnary
 
@@ -81,23 +81,145 @@ class Trap():
             return potential
 
     # -- analyze
+
+    def _istrapping(self, U0, U):
+        '''
+        Determines whether the 2D potential U0 is trapping at level U
+        It uses scikit-images find_countours() to check whether there is a
+        closed contour at the level U. Returns 1 if trapping, -1 if not
+        '''
+        # find contours
+        contours = find_contours(U, U0)
+        result = -1
+        # look for a closed contour
+        for c in contours:
+            if np.all(c[0, :] == c[-1, :]):  # if contour is closed
+                result = 1
+                break
+        return result
+
     def analyze_depth(self,
-                      spatial_range=(1e3, 1e3, 1e3),
-                      Npoints=(1000, 1000, 1000),
-                      center=(0, 0, 0),
+                      spatial_range=(1.5e-3, 1e-3, 1e-3),
+                      Npoint=(1000, 1000, 1000),
+                      min_position=(0, 0, 0),
                       unit='µK',
                       plot_result=True,
-                      style2D={'cmap': 'Spectral'}):
-        pass
+                      style2D={'cmap': 'Spectral'},
+                      print_result=True,
+                      figsize=(12, 4)):
+        '''
+        Analyzes the trap potential to find its depth. The analysis is done on
+        2D cuts, and is run three times, i.e. for the XY, XZ and YZ planes.
+        The depth is determined using the _istrapping() method, i.e., by
+        looking for a closed contour in the potential for a given energy.
+
+        Parameters
+        ----------
+        spatial_range : tuple, optional
+            spatial ranges (x,y,z) for the analysis, in meters
+        Npoint : tuple, optional
+            number of points for the (x,y,z) grids
+        min_position : tuple, optional
+            position of the trap minimum. center of the analysis area.
+        unit : str, optional
+            units for the potential : 'J', 'µK', 'mK', 'K'
+        plot_result : bool, optional
+            plot the results
+        style2D : dict, optional
+            style for 2D plot
+        print_result : bool, optional
+            prints the output of the analysis in the terminal
+
+        Returns
+        -------
+        results : dictionnary
+            dictionnary containing trap parameters with explicit names
+        '''
+        # -- prepare grids
+        # 1D
+        x = {}
+        for i, ax in enumerate(['x', 'y', 'z']):
+            x[ax] = np.linspace(-spatial_range[i], spatial_range[i], Npoint[i])
+            x[ax] += min_position[i]
+        # 2D grid
+        XX = {}
+        for cut in ['xy', 'xz', 'yz']:
+            XX[cut] = np.meshgrid(x[cut[0]], x[cut[1]])
+        # potential
+        UU = {}
+        x0, y0, z0 = min_position
+        UU['xy'] = self.potential(XX['xy'][0], XX['xy'][1], z0, unit=unit)
+        UU['xz'] = self.potential(XX['xz'][0], y0, XX['xz'][1], unit=unit)
+        UU['yz'] = self.potential(x0, XX['yz'][0], XX['yz'][1], unit=unit)
+        # trap minimum
+        Umin = self.potential(x0, y0, z0, unit=unit)
+
+        # -- analyze
+        results = {}
+        for cut in ['xy', 'xz', 'yz']:
+            U = UU[cut]
+            b = U.max()
+            a = Umin + (b - Umin) * 1e-2
+            if self._istrapping(a, U) == -1:
+                Ulost = Umin
+            elif self._istrapping(b, U) == 1:
+                Ulost = b
+                print('WARNING : could not find the depth in the %s cut' % cut)
+                print(' you should increase the spatial range !')
+            else:
+                Ulost = brentq(self._istrapping, a, b,
+                               args=(U), rtol=0.001, xtol=0.001)
+            results[cut] = Ulost - Umin
+
+        #  -- display
+        if print_result:
+            print('>> Depth analysis results:')
+            for k, v in results.items():
+                print(' + %s cut  = %.2g %s' % (k.upper(), v, unit))
+            print('')
+
+        # -- plot
+        if plot_result:
+            fig, ax = plt.subplots(1, 3, figsize=figsize)
+            for cax, cut in zip(ax, ['xy', 'xz', 'yz']):
+                # get grids and potential
+                X = XX[cut][0]
+                Y = XX[cut][1]
+                xmult, xstr = unit_mult(X.max(), 'm')
+                ymult, ystr = unit_mult(Y.max(), 'm')
+                U = UU[cut]
+                # plot potential
+                pcm = cax.pcolormesh(xmult * X, ymult * Y, U,
+                                     vmin=U.min(), vmax=U.max(),
+                                     **style2D)
+                fig.colorbar(pcm, ax=cax)
+                # plot escaping contour
+                Ulost = results[cut] + Umin
+                contours = find_contours(U, Ulost)
+                for c in contours:
+                    cax.plot(xmult * x[cut[0]][np.uint(c[:, 1])],
+                             ymult * x[cut[1]][np.uint(c[:, 0])], 'k')
+                # setup
+                cax.set_title('potential (%s)' % unit)
+                cax.set_xlabel('%s (%s)' % (cut[0].upper(), xstr))
+                cax.set_ylabel('%s (%s)' % (cut[1].upper(), ystr))
+
+            # show
+            plt.tight_layout()
+            plt.show()
+
+        return results
 
     def analyze_freq(self,
                      spatial_range=(60e-6, 20e-6, 20e-6),
-                     Npoints=(500, 500, 500),
+                     Npoint=(200, 200, 200),
                      center=(0, 0, 0),
                      unit='µK',
                      plot_result=True,
                      style2D={'cmap': 'Spectral'},
-                     print_result=True):
+                     print_result=True,
+                     only_print_mean=False,
+                     figsize=(12, 4)):
         '''
         Analyzes the trap potential to find trap center, frequencies and
         eigenaxes. The analysis is done on 2D cuts, and is run three times,
@@ -107,7 +229,7 @@ class Trap():
         ----------
         spatial_range : tuple, optional
             spatial ranges (x,y,z) for the analysis, in meters
-        Npoints : tuple, optional
+        Npoint : tuple, optional
             number of points for the (x,y,z) grids
         center : tuple, optional
             center of the area to analyze
@@ -122,14 +244,14 @@ class Trap():
 
         Returns
         -------
-        TYPE
-            Description
+        results : dictionnary
+            dictionnary containing trap parameters with explicit names
         '''
         # -- prepare grids
         # 1D
         x = {}
         for i, ax in enumerate(['x', 'y', 'z']):
-            x[ax] = np.linspace(-spatial_range[i], spatial_range[i])
+            x[ax] = np.linspace(-spatial_range[i], spatial_range[i], Npoint[i])
             x[ax] += center[i]
         # 2D grid
         XX = {}
@@ -138,9 +260,9 @@ class Trap():
         # potential
         UU = {}
         x0, y0, z0 = center
-        UU['xy'] = odt.potential(XX['xy'][0], XX['xy'][1], z0, unit=unit)
-        UU['xz'] = odt.potential(XX['xz'][0], y0, XX['xz'][1], unit=unit)
-        UU['yz'] = odt.potential(x0, XX['yz'][0], XX['yz'][1], unit=unit)
+        UU['xy'] = self.potential(XX['xy'][0], XX['xy'][1], z0, unit=unit)
+        UU['xz'] = self.potential(XX['xz'][0], y0, XX['xz'][1], unit=unit)
+        UU['yz'] = self.potential(x0, XX['yz'][0], XX['yz'][1], unit=unit)
 
         # -- analyze
         results = {}
@@ -178,14 +300,16 @@ class Trap():
                 mean['%s0' % cut[1]].append(r['y0'])
                 mean['U0'].append(r['U0'])
                 # print
-                print(title % cut.upper())
-                print(res % 'angle       = %.2g rad (%.2g deg)' % (theta, theta_deg))
-                print(res % 'freq_u (~%s) = %s' % (cut[0], freq_u))
-                print(res % 'freq_v (~%s) = %s' % (cut[1], freq_v))
-                print(res % 'U0          = %s' % U0)
-                print(res % 'center %s   = %s' % (cut[0], x0))
-                print(res % 'center %s   = %s' % (cut[1], y0))
-                print('')
+                if not only_print_mean:
+                    print(title % cut.upper())
+                    print(res % 'angle       = %.2g rad (%.2g deg)' %
+                          (theta, theta_deg))
+                    print(res % 'freq_u (~%s) = %s' % (cut[0], freq_u))
+                    print(res % 'freq_v (~%s) = %s' % (cut[1], freq_v))
+                    print(res % 'U0          = %s' % U0)
+                    print(res % 'center %s   = %s' % (cut[0], x0))
+                    print(res % 'center %s   = %s' % (cut[1], y0))
+                    print('')
             # mean
             print('>> MEAN')
             for k in ['freq_x', 'freq_y', 'freq_z']:
@@ -195,6 +319,7 @@ class Trap():
                 xm = np.mean(mean[k])
                 print(res % '%s  = %.2g µm' % (k, xm))
             print(res % 'U0   = %.2g %s' % (np.mean(mean['U0']), unit))
+            print('')
 
         # -- plot
         if plot_result:
@@ -214,7 +339,7 @@ class Trap():
                 y0 = results[cut]['y0']
                 # - plot
                 # figure
-                fig, ax = plt.subplots(1, 3, figsize=(12, 4))
+                fig, ax = plt.subplots(1, 3, figsize=figsize)
                 # potential
                 pcm = ax[0].pcolormesh(xmult * X, ymult * Y, U,
                                        vmin=U.min(), vmax=U.max(),
@@ -241,8 +366,8 @@ class Trap():
                     cax.plot((r * np.cos(theta) + x0) * xmult,
                              (r * np.sin(theta) + y0) * ymult,
                              label='u')
-                    cax.plot((r * np.cos(theta + pi/2) + x0) * xmult,
-                             (r * np.sin(theta + pi/2) + y0) * ymult,
+                    cax.plot((r * np.cos(theta + pi / 2) + x0) * xmult,
+                             (r * np.sin(theta + pi / 2) + y0) * ymult,
                              label='v')
                     cax.plot(xmult * x0, ymult * y0, 'ok')
                     cax.set_xlim(xmult * X.min(), xmult * X.max())
@@ -261,45 +386,64 @@ class Trap():
 
     def plot_potential(self,
                        spatial_range=(1e3, 1e3, 1e3),
-                       Npoints=(1000, 1000, 1000),
+                       Npoint=(500, 500, 500),
                        center=(0, 0, 0),
                        unit='µK',
                        style2D={'cmap': 'Spectral'},
                        style1D={},
-                       Ncontour=6):
-        # - compute
-        # get params
-        Nx, Ny, Nz = Npoints
-        xrange, yrange, zrange = spatial_range
+                       Ncontour=6,
+                       figsize=(11, 7)):
+        '''
+        Plots the total potential
+
+        Parameters
+        ----------
+        spatial_range : tuple, optional
+            spatial ranges (x,y,z) for the analysis, in meters
+        Npoint : tuple, optional
+            number of points for the (x,y,z) grids
+        center : tuple, optional
+            center of the area to analyze
+        unit : str, optional
+            units for the potential : 'J', 'µK', 'mK', 'K'
+        style2D : dict, optional
+            style for 2D plots
+        style1D : dict, optional
+            style for 1D plots
+        Ncontour : int / array, optional
+            number of contours to plot. One can also directly provide an array
+            with the contours.
+        '''
+
+        # -- prepare grids
+        # 1D
+        x = {}
+        for i, ax in enumerate(['x', 'y', 'z']):
+            x[ax] = np.linspace(-spatial_range[i], spatial_range[i], Npoint[i])
+            x[ax] += center[i]
+        # 2D grid
+        XX = {}
+        for cut in ['xy', 'xz', 'yz']:
+            XX[cut] = np.meshgrid(x[cut[0]], x[cut[1]])
+        # 2D potential
+        UU = {}
         x0, y0, z0 = center
-        # 1D arrays
-        x = np.linspace(-xrange, xrange, Nx) + x0
-        y = np.linspace(-yrange, yrange, Ny) + y0
-        z = np.linspace(-zrange, zrange, Nz) + z0
-        # grids
-        XYx, XYy = np.meshgrid(x, y)  # XY
-        XZx, XZz = np.meshgrid(x, z)  # XZ
-        YZy, YZz = np.meshgrid(y, z)  # YZ
-        # compute 2D
-        XYu = self.potential(XYx, XYy, z0, unit=unit)
-        XZu = self.potential(XZx, y0, XZz, unit=unit)
-        YZu = self.potential(x0, YZy, YZz, unit=unit)
-        # compute 1D
-        ux, ux_ind = self.potential(x, y0, z0, unit=unit,
-                                    yield_each_contribution=True)
-        uy, uy_ind = self.potential(x0, y, z0, unit=unit,
-                                    yield_each_contribution=True)
-        uz, uz_ind = self.potential(x0, y0, z, unit=unit,
-                                    yield_each_contribution=True)
-        # - prepare for plot
-        # scales for x,y,z
-        xmult, xstr = unit_mult(xrange, 'm')
-        ymult, ystr = unit_mult(yrange, 'm')
-        zmult, zstr = unit_mult(zrange, 'm')
-        # contour plot lines
+        UU['xy'] = self.potential(XX['xy'][0], XX['xy'][1], z0, unit=unit)
+        UU['xz'] = self.potential(XX['xz'][0], y0, XX['xz'][1], unit=unit)
+        UU['yz'] = self.potential(x0, XX['yz'][0], XX['yz'][1], unit=unit)
+        # 1D potential
+        u = {}
+        u['x'], u['x_ind'] = self.potential(x['x'], y0, z0, unit=unit,
+                                            yield_each_contribution=True)
+        u['y'], u['y_ind'] = self.potential(x0, x['y'], z0, unit=unit,
+                                            yield_each_contribution=True)
+        u['z'], u['z_ind'] = self.potential(x0, y0, x['z'], unit=unit,
+                                            yield_each_contribution=True)
+
+        # -- prepare contour
         if isinstance(Ncontour, (int, float)):
-            Umin = XYu.min()
-            Umax = XYu.max()
+            Umin = UU['xy'].min()
+            Umax = UU['xy'].max()
             contours = np.linspace(0, Umax - Umin, Ncontour)
         else:
             contours = Ncontour
@@ -308,7 +452,7 @@ class Trap():
 
         # - plot
         # init figure
-        plt.figure(figsize=(11, 7))
+        plt.figure(figsize=figsize)
         ax = {}
         Ncol = 3
         Nrow = 2
@@ -318,44 +462,43 @@ class Trap():
         ax['x'] = plt.subplot2grid((Nrow, Ncol), (1, 0))
         ax['y'] = plt.subplot2grid((Nrow, Ncol), (1, 1))
         ax['z'] = plt.subplot2grid((Nrow, Ncol), (1, 2))
-        # plot xy
-        ax['xy'].pcolormesh(xmult * XYx, ymult * XYy, XYu, **style2D)
-        ax['xy'].contour(xmult * XYx, ymult * XYy, XYu, contours + Umin,
-                         colors='k', linestyles='dashed', linewidths=1)
-        ax['xy'].set_xlabel('X (%s)' % xstr)
-        ax['xy'].set_ylabel('Y (%s)' % ystr)
-        # plot xz
-        ax['xz'].pcolormesh(xmult * XZx, zmult * XZz, XZu, **style2D)
-        ax['xz'].contour(xmult * XZx, zmult * XZz, XZu, contours + Umin,
-                         colors='k', linestyles='dashed', linewidths=1)
-        ax['xz'].set_xlabel('X (%s)' % xstr)
-        ax['xz'].set_ylabel('Z (%s)' % zstr)
-        # plot yz
-        ax['yz'].pcolormesh(ymult * YZy, zmult * YZz, YZu, **style2D)
-        ax['yz'].contour(ymult * YZy, zmult * YZz, YZu, contours + Umin,
-                         colors='k', linestyles='dashed', linewidths=1)
-        ax['yz'].set_xlabel('Y (%s)' % ystr)
-        ax['yz'].set_ylabel('Z (%s)' % zstr)
-        # plot 1D cuts
-        for a, xx, u, c, m, l in zip(['x', 'y', 'z'],
-                                     [x, y, z],
-                                     [ux, uy, uz],
-                                     [ux_ind, uy_ind, uz_ind],
-                                     [xmult, ymult, zmult],
-                                     [xstr, ystr, zstr]):
-            cax = ax[a]
-            cax.plot(m * xx, u, label='total', **style1D)  # total contribution
-            for name, u_ind in c.items():
-                cax.plot(m * xx, u_ind, label=name, dashes=[2, 2])  # indivb
-
+        # plot 2D
+        for cut in ['xy', 'xz', 'yz']:
+            cax = ax[cut]
+            # get data
+            X = XX[cut][0]
+            Y = XX[cut][1]
+            xmult, xstr = unit_mult(X.max(), 'm')
+            ymult, ystr = unit_mult(Y.max(), 'm')
+            U = UU[cut]
+            # plot potential
+            cax.pcolormesh(xmult * X, ymult * Y, U, **style2D)
+            # plot contours
+            cax.contour(xmult * X, ymult * Y, U, contours + Umin,
+                        colors='k', linestyles='dashed', linewidths=1)
+            cax.set_xlabel('%s (%s)' % (cut[0].upper(), xstr))
+            cax.set_ylabel('%s (%s)' % (cut[1].upper(), ystr))
+        # plot 1D
+        for axis in ['x', 'y', 'z']:
+            cax = ax[axis]
+            r = x[axis]
+            rmult, rstr = unit_mult(r.max(), 'm')
+            # total potential
+            cax.plot(rmult * r, u[axis], label='total', **style1D)
+            # individual contributions
+            for name, u_ind in u['%s_ind' % axis].items():
+                cax.plot(rmult * r, u_ind, label=name, dashes=[2, 2])
             cax.set_ylabel('potential (%s)' % unit)
-            cax.set_xlabel('%s (%s)' % (a.upper(), l))
-            cax.set_xlim(m * xx.min(), m * xx.max())
+            cax.set_xlabel('%s (%s)' % (axis.upper(), rstr))
+            cax.set_xlim(rmult * r.min(), rmult * r.max())
             cax.grid()
+        # legend on one axis
         ax['x'].legend()
-
+        # tight layout & show
         plt.tight_layout()
         plt.show()
+        pass
+
 
 
 # -- stored for later
@@ -376,18 +519,20 @@ def DT_gauss(w0, P0):
 if __name__ == '__main__':
     odt = Trap()
     # PDH : aller
+    power = 6
     odt.add_laser(waist_value=135e-6,
-                  power=6,
+                  power=power,
                   theta=pi / 2,  # i.e. in horizontal plane
                   phi=9 * pi / 180,
                   label='PDH (aller)')
 
     # PDH : retour
     odt.add_laser(waist_value=135e-6,
-                  power=6 * 0.8,
+                  power=power * 0.8,
                   theta=pi / 2,
                   phi=-9 * pi / 180,
                   label='PDH (retour)')
 
-    #  odt.plot_potential(spatial_range=(1.5e-3, 500e-6, 500e-6))
-    odt.analyze_freq()
+    # odt.plot_potential(spatial_range=(1.5e-3, 500e-6, 500e-6))
+    # odt.analyze_freq()
+    odt.analyze_depth()

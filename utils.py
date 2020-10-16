@@ -2,7 +2,7 @@
 '''
 Author   : alex
 Created  : 2020-10-13 17:03:22
-Modified : 2020-10-16 14:56:24
+Modified : 2020-10-16 16:12:39
 
 Comments : some utility functions for ODT potential calculation
 '''
