@@ -2,7 +2,7 @@
 '''
 Author   : alex
 Created  : 2020-10-13 17:28:20
-Modified : 2020-10-15 15:01:56
+Modified : 2020-10-16 12:02:20
 
 Comments : implements the Trap class, used for the calculation of optical
            dipole traps potential
@@ -18,13 +18,16 @@ from scipy.optimize import brentq
 # local
 from atom import Helium
 from laser import GaussianBeam
-from utils import unit_mult
+from utils import unit_mult, polyval2D, polyfit2D, sortp, analyze_psort
 
 # == define atom data dictionnary
+
+
 class Trap():
     '''
     Defines pulse shapes (temporal)
     '''
+
     def __init__(self, atom=Helium()):
         '''
         Object initialization, sets parameters
@@ -77,17 +80,82 @@ class Trap():
             return potential
 
     # -- analyze
-    def find_depth(self,
-                   spatial_range=(1e3, 1e3, 1e3),
-                   Npoints=(1000, 1000, 1000),
-                   center=(0, 0, 0),
-                   unit='µK',
-                   plot_result=True,
-                   style2D={'cmap': 'Spectral'}):
+    def analyze_depth(self,
+                      spatial_range=(1e3, 1e3, 1e3),
+                      Npoints=(1000, 1000, 1000),
+                      center=(0, 0, 0),
+                      unit='µK',
+                      plot_result=True,
+                      style2D={'cmap': 'Spectral'}):
         pass
 
+    def analyze_freq(self,
+                     spatial_range=(60e-6, 20e-6, 20e-6),
+                     Npoints=(500, 500, 500),
+                     center=(0, 0, 0),
+                     unit='µK',
+                     plot_result=True,
+                     style2D={'cmap': 'Spectral'},
+                     print_result=True):
+        '''
+        Analyzes the trap potential to find trap center, frequencies and
+        eigenaxes. The analysis is done on 2D cuts, and is run three times,
+        i.e. for the XY, XZ and YZ planes
+
+        Parameters
+        ----------
+        spatial_range : tuple, optional
+            spatial ranges (x,y,z) for the analysis, in meters
+        Npoints : tuple, optional
+            number of points for the (x,y,z) grids
+        center : tuple, optional
+            center of the area to analyze
+        unit : str, optional
+            units for the potential : 'J', 'µK', 'mK', 'K'
+        plot_result : bool, optional
+            plot the results
+        style2D : dict, optional
+            style for 2D plot
+        print_result : bool, optional
+            prints the output of the analysis in the terminal
+
+        Returns
+        -------
+        TYPE
+            Description
+        '''
+        # -- prepare grids
+        # 1D
+        x = {}
+        for i, ax in enumerate(['x', 'y', 'z']):
+            x[ax] = np.linspace(-spatial_range[i], spatial_range[i])
+            x[ax] += center[i]
+        # 2D grid
+        XX = {}
+        for cut in ['xy', 'xz', 'yz']:
+            XX[cut] = np.meshgrid(x[cut[0]], x[cut[1]])
+        # potential
+        UU = {}
+        x0, y0, z0 = center
+        UU['xy'] = odt.potential(XX['xy'][0], XX['xy'][1], z0, unit=unit)
+        UU['xz'] = odt.potential(XX['xz'][0], y0, XX['xz'][1], unit=unit)
+        UU['yz'] = odt.potential(x0, XX['yz'][0], XX['yz'][1], unit=unit)
+
+        # -- analyze
+        results = {}
+        for cut in ['xy', 'xz', 'yz']:
+            # 2D polynomial fit
+            p = polyfit2D(XX[cut][0], XX[cut][1], UU[cut],
+                          n=4, print_full_res=False)
+            p_sorted = sortp(p)
+            results[cut] = analyze_psort(p_sorted, unit=unit, m=self.atom.mass)
+            results[cut]['p'] = p
+            results[cut]['ps'] = p_sorted
+
+        return results
 
     # -- plotting
+
     def plot_potential(self,
                        spatial_range=(1e3, 1e3, 1e3),
                        Npoints=(1000, 1000, 1000),
@@ -108,9 +176,11 @@ class Trap():
         # grids
         XYx, XYy = np.meshgrid(x, y)  # XY
         XZx, XZz = np.meshgrid(x, z)  # XZ
+        YZy, YZz = np.meshgrid(y, z)  # YZ
         # compute 2D
         XYu = self.potential(XYx, XYy, z0, unit=unit)
-        XZu = self.potential(XZx,  y0, XZz, unit=unit)
+        XZu = self.potential(XZx, y0, XZz, unit=unit)
+        YZu = self.potential(x0, YZy, YZz, unit=unit)
         # compute 1D
         ux, ux_ind = self.potential(x, y0, z0, unit=unit,
                                     yield_each_contribution=True)
@@ -138,12 +208,13 @@ class Trap():
         plt.figure(figsize=(11, 7))
         ax = {}
         Ncol = 3
-        Nrow = 6
-        ax['xy'] = plt.subplot2grid((Nrow, Ncol), (0, 0), rowspan=3)
-        ax['xz'] = plt.subplot2grid((Nrow, Ncol), (3, 0), rowspan=3)
-        ax['x'] = plt.subplot2grid((Nrow, Ncol), (0, 1), rowspan=2, colspan=2)
-        ax['y'] = plt.subplot2grid((Nrow, Ncol), (2, 1), rowspan=2, colspan=2)
-        ax['z'] = plt.subplot2grid((Nrow, Ncol), (4, 1), rowspan=2, colspan=2)
+        Nrow = 2
+        ax['xy'] = plt.subplot2grid((Nrow, Ncol), (0, 0))
+        ax['xz'] = plt.subplot2grid((Nrow, Ncol), (0, 1))
+        ax['yz'] = plt.subplot2grid((Nrow, Ncol), (0, 2))
+        ax['x'] = plt.subplot2grid((Nrow, Ncol), (1, 0))
+        ax['y'] = plt.subplot2grid((Nrow, Ncol), (1, 1))
+        ax['z'] = plt.subplot2grid((Nrow, Ncol), (1, 2))
         # plot xy
         ax['xy'].pcolormesh(xmult * XYx, ymult * XYy, XYu, **style2D)
         ax['xy'].contour(xmult * XYx, ymult * XYy, XYu, contours + Umin,
@@ -156,6 +227,12 @@ class Trap():
                          colors='k', linestyles='dashed', linewidths=1)
         ax['xz'].set_xlabel('X (%s)' % xstr)
         ax['xz'].set_ylabel('Z (%s)' % zstr)
+        # plot yz
+        ax['yz'].pcolormesh(ymult * YZy, zmult * YZz, YZu, **style2D)
+        ax['yz'].contour(ymult * YZy, zmult * YZz, YZu, contours + Umin,
+                         colors='k', linestyles='dashed', linewidths=1)
+        ax['yz'].set_xlabel('Y (%s)' % ystr)
+        ax['yz'].set_ylabel('Z (%s)' % zstr)
         # plot 1D cuts
         for a, xx, u, c, m, l in zip(['x', 'y', 'z'],
                                      [x, y, z],
@@ -209,5 +286,5 @@ if __name__ == '__main__':
                   phi=-9 * pi / 180,
                   label='PDH (retour)')
 
-    odt.plot_potential(spatial_range=(1.5e-3, 500e-6, 500e-6))
-
+    #  odt.plot_potential(spatial_range=(1.5e-3, 500e-6, 500e-6))
+    odt.analyze_freq()
