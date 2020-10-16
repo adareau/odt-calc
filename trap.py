@@ -2,7 +2,7 @@
 '''
 Author   : alex
 Created  : 2020-10-13 17:28:20
-Modified : 2020-10-16 12:02:20
+Modified : 2020-10-16 15:35:56
 
 Comments : implements the Trap class, used for the calculation of optical
            dipole traps potential
@@ -18,7 +18,8 @@ from scipy.optimize import brentq
 # local
 from atom import Helium
 from laser import GaussianBeam
-from utils import unit_mult, polyval2D, polyfit2D, sortp, analyze_psort
+from utils import unit_mult, unit_str, \
+                  polyval2D, polyfit2D, sortp, analyze_psort
 
 # == define atom data dictionnary
 
@@ -151,6 +152,108 @@ class Trap():
             results[cut] = analyze_psort(p_sorted, unit=unit, m=self.atom.mass)
             results[cut]['p'] = p
             results[cut]['ps'] = p_sorted
+
+        # -- display results
+        if print_result:
+            # format
+            title = '>> Results for %s cut'
+            res = '  + %s'
+            mean = {'freq_x': [], 'freq_y': [], 'freq_z': [],
+                    'x0': [], 'y0': [], 'z0': [], 'U0': []}
+            # display
+            for cut in ['xy', 'xz', 'yz']:
+                # get results
+                r = results[cut]
+                theta = r['theta']
+                theta_deg = theta * 180 / pi
+                freq_u = unit_str(r['freq_u'], 2, 'Hz')
+                freq_v = unit_str(r['freq_v'], 2, 'Hz')
+                U0 = '%.2g %s' % (r['U0'], unit)
+                x0 = '%.2g µm' % (r['x0'] * 1e6)
+                y0 = '%.2g µm' % (r['y0'] * 1e6)
+                # add to mean
+                mean['freq_%s' % cut[0]].append(r['freq_u'])
+                mean['freq_%s' % cut[1]].append(r['freq_v'])
+                mean['%s0' % cut[0]].append(r['x0'])
+                mean['%s0' % cut[1]].append(r['y0'])
+                mean['U0'].append(r['U0'])
+                # print
+                print(title % cut.upper())
+                print(res % 'angle       = %.2g rad (%.2g deg)' % (theta, theta_deg))
+                print(res % 'freq_u (~%s) = %s' % (cut[0], freq_u))
+                print(res % 'freq_v (~%s) = %s' % (cut[1], freq_v))
+                print(res % 'U0          = %s' % U0)
+                print(res % 'center %s   = %s' % (cut[0], x0))
+                print(res % 'center %s   = %s' % (cut[1], y0))
+                print('')
+            # mean
+            print('>> MEAN')
+            for k in ['freq_x', 'freq_y', 'freq_z']:
+                fm = np.mean(mean[k])
+                print(res % '%s  = %s' % (k, unit_str(fm, 2, 'Hz')))
+            for k in ['x0', 'y0', 'z0']:
+                xm = np.mean(mean[k])
+                print(res % '%s  = %.2g µm' % (k, xm))
+            print(res % 'U0   = %.2g %s' % (np.mean(mean['U0']), unit))
+
+        # -- plot
+        if plot_result:
+            for cut in ['xy', 'xz', 'yz']:
+                # - get grids and potentials
+                X = XX[cut][0]
+                Y = XX[cut][1]
+                xmult, xstr = unit_mult(X.max(), 'm')
+                ymult, ystr = unit_mult(Y.max(), 'm')
+
+                U = UU[cut]
+                Ufit = polyval2D(X, Y, results[cut]['p'])
+                err = U - Ufit
+                errmax = np.max(np.abs(err))
+                theta = results[cut]['theta']
+                x0 = results[cut]['x0']
+                y0 = results[cut]['y0']
+                # - plot
+                # figure
+                fig, ax = plt.subplots(1, 3, figsize=(12, 4))
+                # potential
+                pcm = ax[0].pcolormesh(xmult * X, ymult * Y, U,
+                                       vmin=U.min(), vmax=U.max(),
+                                       **style2D)
+                fig.colorbar(pcm, ax=ax[0])
+                ax[0].set_title('potential (%s)' % unit)
+                # fit
+                pcm = ax[1].pcolormesh(xmult * X, ymult * Y, Ufit,
+                                       vmin=U.min(), vmax=U.max(),
+                                       **style2D)
+                fig.colorbar(pcm, ax=ax[1])
+                ax[1].set_title('fit (%s)' % unit)
+                # error
+                pcm = ax[2].pcolormesh(xmult * X, ymult * Y, err,
+                                       vmin=-errmax, vmax=errmax,
+                                       cmap='RdBu_r')
+                fig.colorbar(pcm, ax=ax[2])
+                ax[2].set_title('error (%s)' % unit)
+
+                # decorations
+                for cax in ax:
+                    # angles
+                    r = np.array([-1, 1])
+                    cax.plot((r * np.cos(theta) + x0) * xmult,
+                             (r * np.sin(theta) + y0) * ymult,
+                             label='u')
+                    cax.plot((r * np.cos(theta + pi/2) + x0) * xmult,
+                             (r * np.sin(theta + pi/2) + y0) * ymult,
+                             label='v')
+                    cax.plot(xmult * x0, ymult * y0, 'ok')
+                    cax.set_xlim(xmult * X.min(), xmult * X.max())
+                    cax.set_ylim(ymult * Y.min(), ymult * Y.max())
+                    # labels
+                    cax.set_xlabel('%s (%s)' % (cut[0].upper(), xstr))
+                    cax.set_ylabel('%s (%s)' % (cut[1].upper(), ystr))
+
+                ax[1].legend()
+                plt.tight_layout()
+            plt.show()
 
         return results
 

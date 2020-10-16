@@ -2,7 +2,7 @@
 '''
 Author   : alex
 Created  : 2020-10-13 17:03:22
-Modified : 2020-10-16 11:43:33
+Modified : 2020-10-16 14:56:24
 
 Comments : some utility functions for ODT potential calculation
 '''
@@ -22,7 +22,7 @@ def unit_str(x, prec=2, unit=''):
     _disp_prefixes = {-18: 'a', -15: 'f', -12: 'p', -9: 'n', -6: 'µ', -3: 'm',
                       0: '', 3: 'k', 6: 'M', 9: 'G', 12: 'T'}
     # get range
-    n = np.log(x) / np.log(10)
+    n = np.log(np.abs(x)) / np.log(10)
     k = n // 3
     if np.abs(n - 3 * (k + 1)) < 1e-10:
         k += 1
@@ -42,6 +42,7 @@ def unit_mult(x, unit=''):
     _disp_prefixes = {-18: 'a', -15: 'f', -12: 'p', -9: 'n', -6: 'µ', -3: 'm',
                       0: '', 3: 'k', 6: 'M', 9: 'G', 12: 'T'}
     # get range
+    x = np.abs(x)
     n = np.log(x) / np.log(10)
     k = n // 3
     if np.abs(n - 3 * (k + 1)) < 1e-10:
