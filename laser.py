@@ -2,9 +2,9 @@
 '''
 Author   : alex
 Created  : 2020-10-13 17:25:42
-Modified : 2020-10-14 15:33:36
+Modified : 2020-10-19 09:08:18
 
-Comments : Implements the GaussianBeam class, to plot laser intensity easily
+Comments : Implements the GaussianBeam class, to compute laser intensity easily
 '''
 # -- imports
 import numpy as np
@@ -30,7 +30,7 @@ def intensity_gauss(r, z, w0, P=1, wavelength=1550e-9):
 # -- laser class
 class GaussianBeam():
     '''
-    Defines pulse shapes (temporal)
+    A single gaussian beam
     '''
     def __init__(self, **kwargs):
         '''
