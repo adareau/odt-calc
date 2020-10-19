@@ -2,7 +2,7 @@
 '''
 Author   : alex
 Created  : 2020-10-13 17:28:20
-Modified : 2020-10-16 16:54:04
+Modified : 2020-10-19 09:04:56
 
 Comments : implements the Trap class, used for the calculation of optical
            dipole traps potential
@@ -81,6 +81,56 @@ class Trap():
             return potential
 
     # -- analyze
+
+    def compute_theoretical_properties(self):
+        '''
+        Computes and prints the theoretical properties (depth and frequencies)
+        of each individual laser / coils.
+        '''
+        # -- loop on lasers
+        for beam in self.lasers:
+            # - compute
+            # beam parameters
+            w0 = beam.waist_value  # waist (m)
+            zR = np.pi * w0 ** 2 / beam.wavelength  # Rayleigh length (m)
+            P0 = beam.power  # power (W)
+            I0 = 2 * P0 / np.pi / w0 ** 2  # central intensity (W/m^2)
+            # atomic parameters
+            alpha = self.atom.get_alpha(beam.wavelength)  # polarizability
+            m = self.atom.mass  # atomic mass (kg)
+            # trap parameters
+            U0 = 1 / 2 / csts.epsilon_0 / csts.c * alpha * I0  # trap depth (J)
+            U0_K = U0 / csts.k  # trap depth (K)
+            omega_rad = np.sqrt(4 * U0 / m / w0 ** 2)  # radial trap freq.
+            omega_ax = np.sqrt(2 * U0 / m / zR ** 2)  # axial trap freq.
+            f_rad = omega_rad / 2 / pi
+            f_ax = omega_ax / 2 / pi
+            # - print
+            print('>> Laser %s' % beam.label)
+            print('  + depth    = %s' % unit_str(U0_K, prec=2, unit='K'))
+            print('  + freq rad = %s' % unit_str(f_rad, prec=2, unit='Hz'))
+            print('  + freq ax  = %s' % unit_str(f_ax, prec=2, unit='Hz'))
+            print('')
+
+        '''
+        # -- stored for later
+        def DT_gauss(w0, P0):
+            """
+            Returns some parameters for the dipole trap, with waist w0 and power P0
+            """
+            global alpha, lbda, m_He
+            zR = np.pi * w0 ** 2 / lbda
+            I0 = 2 * P0 / np.pi / w0 ** 2
+            U0 = 1 / 2 / csts.epsilon_0 / csts.c * alpha * I0  # trap depth
+            omega_rad = np.sqrt(4 * U0 / m_He / w0 ** 2)  # radial trap freq.
+            omega_ax = np.sqrt(2 * U0 / m_He / zR ** 2)  # axial trap freq.
+            return U0, omega_rad, omega_ax
+    '''
+
+        # -- loop on coils
+        # TODO
+
+        pass
 
     def _istrapping(self, U0, U):
         '''
@@ -500,21 +550,6 @@ class Trap():
         pass
 
 
-
-# -- stored for later
-def DT_gauss(w0, P0):
-    """
-    Returns some parameters for the dipole trap, with waist w0 and power P0
-    """
-    global alpha, lbda, m_He
-    zR = np.pi * w0 ** 2 / lbda
-    I0 = 2 * P0 / np.pi / w0 ** 2
-    U0 = 1 / 2 / csts.epsilon_0 / csts.c * alpha * I0  # trap depth
-    omega_rad = np.sqrt(4 * U0 / m_He / w0 ** 2)  # radial trap freq.
-    omega_ax = np.sqrt(2 * U0 / m_He / zR ** 2)  # axial trap freq.
-    return U0, omega_rad, omega_ax
-
-
 # -- TESTS
 if __name__ == '__main__':
     odt = Trap()
@@ -535,4 +570,5 @@ if __name__ == '__main__':
 
     # odt.plot_potential(spatial_range=(1.5e-3, 500e-6, 500e-6))
     # odt.analyze_freq()
-    odt.analyze_depth()
+    # odt.analyze_depth()
+    odt.compute_theoretical_properties()
