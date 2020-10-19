@@ -2,7 +2,7 @@
 '''
 Author   : alex
 Created  : 2020-10-13 17:28:20
-Modified : 2020-10-19 09:04:56
+Modified : 2020-10-19 18:05:17
 
 Comments : implements the Trap class, used for the calculation of optical
            dipole traps potential
@@ -18,6 +18,7 @@ from scipy.optimize import brentq
 # local
 from atom import Helium
 from laser import GaussianBeam
+from coil import SingleCoil
 from utils import unit_mult, unit_str, \
     polyval2D, polyfit2D, sortp, analyze_psort
 
@@ -37,6 +38,7 @@ class Trap():
         self.lasers = []
         self.coils = []
         self.gravity = True
+        self.magnetic_field_offset = (0, 0, 0)  # Tesla
 
     # -- components handling (lasers, coils)
     def add_laser(self, **kwargs):
@@ -45,6 +47,13 @@ class Trap():
 
     def reset_lasers(self):
         self.lasers = []
+
+    def add_coil(self, **kwargs):
+        new_coil = SingleCoil(**kwargs)
+        self.coils.append(new_coil)
+
+    def reset_coils(self):
+        self.coils = []
 
     # -- potential calculation
     def potential(self, X, Y, Z, yield_each_contribution=False, unit='J'):
@@ -69,6 +78,38 @@ class Trap():
             potential += new_potential
             if yield_each_contribution:
                 individual_potentials[beam.label] = new_potential
+
+        # compute magenetic field potential
+        # prepare
+        Bx0, By0, Bz0 = self.magnetic_field_offset  # homogeneous offset
+        Bxc, Byc, Bzc = self.magnetic_field_offset  # magnetic field at center
+        Bx = np.zeros_like(X * Y * Z, dtype=float) + Bx0
+        By = np.zeros_like(X * Y * Z, dtype=float) + By0
+        Bz = np.zeros_like(X * Y * Z, dtype=float) + Bz0
+        gJ = self.atom.lande_g_factor
+        mJ = self.atom.zeeman_state
+        mu_B = csts.value('Bohr magneton')
+        # add contributions of all coils
+        for coil in self.coils:
+            bx, by, bz = coil.field(X, Y, Z, unit='T')
+            bxc, byc, bzc = coil.field(0, 0, 0, unit='T')
+            if yield_each_contribution:
+                b = np.sqrt((bx + Bx0)**2 + (by + By0)**2 + (bz + Bz0)**2)
+                bc = np.sqrt((bxc + Bx0)**2 + (byc + By0)**2 + (bzc + Bz0)**2)
+                mag_potential = mult * gJ * mJ * mu_B * (b - bc)
+                individual_potentials[coil.label] = mag_potential
+            Bx += bx
+            By += by
+            Bz += bz
+            Bxc += bxc
+            Byc += byc
+            Bzc += bzc
+        # compute resulting potential
+        B = np.sqrt(Bx ** 2 + By ** 2 + Bz ** 2)
+        Bc = np.sqrt(Bxc ** 2 + Byc ** 2 + Bzc ** 2)  # at center
+        magnetic_potential = gJ * mJ * mu_B * (B - Bc)
+        potential += mult * magnetic_potential
+
         # add gravity
         if self.gravity:
             m = self.atom.mass
@@ -112,23 +153,14 @@ class Trap():
             print('  + freq ax  = %s' % unit_str(f_ax, prec=2, unit='Hz'))
             print('')
 
-        '''
-        # -- stored for later
-        def DT_gauss(w0, P0):
-            """
-            Returns some parameters for the dipole trap, with waist w0 and power P0
-            """
-            global alpha, lbda, m_He
-            zR = np.pi * w0 ** 2 / lbda
-            I0 = 2 * P0 / np.pi / w0 ** 2
-            U0 = 1 / 2 / csts.epsilon_0 / csts.c * alpha * I0  # trap depth
-            omega_rad = np.sqrt(4 * U0 / m_He / w0 ** 2)  # radial trap freq.
-            omega_ax = np.sqrt(2 * U0 / m_He / zR ** 2)  # axial trap freq.
-            return U0, omega_rad, omega_ax
-    '''
-
         # -- loop on coils
         # TODO
+        '''
+        # -- theorie
+        B0 = csts.mu_0 * I * n / 2 / R
+        Bc = B0 * (1 + (z0/R)**2) ** (-3/2)
+        grad = -3 * Bc * z0 / R**2 / (1 + (z0/R)**2)
+        '''
 
         pass
 
@@ -568,7 +600,16 @@ if __name__ == '__main__':
                   phi=-9 * pi / 180,
                   label='PDH (retour)')
 
-    # odt.plot_potential(spatial_range=(1.5e-3, 500e-6, 500e-6))
+    # magnetic
+    odt.magnetic_field_offset = (4e-4, 0, 0)
+    odt.add_coil(plane='yz',
+                 radius=10e-2,
+                 axial_shift=30e-2,
+                 current=5,
+                 n_turns=100,
+                 label='gradient coil')
+
+    odt.plot_potential(spatial_range=(1.5e-3, 500e-6, 500e-6))
     # odt.analyze_freq()
-    # odt.analyze_depth()
-    odt.compute_theoretical_properties()
+    odt.analyze_depth()
+    # odt.compute_theoretical_properties()

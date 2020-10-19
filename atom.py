@@ -2,7 +2,7 @@
 '''
 Author   : alex
 Created  : 2020-10-13 17:06:38
-Modified : 2020-10-14 15:25:36
+Modified : 2020-10-19 17:19:33
 
 Comments : contains atomic data (for Helium)
 '''
@@ -27,6 +27,9 @@ class Helium():
         self.atomic_width = 2 * np.pi * 1.62e6  # s^-1
         self.atomic_omega = 2 * np.pi * csts.c / self.atomic_wavelength
         self.scattering_length = 7.512e-9  # m, s-wave scattering length
+        # magnetic
+        self.lande_g_factor = 2
+        self.zeeman_state = -1
 
     def get_alpha(self, wavelength=1550e-9, unit='SI'):
         '''
