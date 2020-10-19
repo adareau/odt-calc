@@ -2,7 +2,7 @@
 '''
 Author   : alex
 Created  : 2020-10-19 09:06:24
-Modified : 2020-10-19 13:52:28
+Modified : 2020-10-19 17:11:25
 
 Comments : Implements the coils object, to compute coils magnetic fields
 '''
@@ -109,18 +109,64 @@ class SingleCoil():
         # update attributes based on kwargs
         self.__dict__.update(kwargs)
 
-    def field(self, x, y, z):
+    def field(self, x, y, z, unit='T'):
         '''
-        returns intensity at point (x,y,z)
+        returns magnetic field at point (x,y,z)
         '''
-        # -- shorthand
-        pass
+        # -- analyze inputs
+        msg = "Invalid coil plane : should be 'XY', 'XZ' or 'YZ'"
+        assert self.plane.upper() in ['XY', 'XZ', 'YZ'], msg
+
+        unit_conversion = {'T': 1, 'G': 1e4}
+        unit_available = ' or '.join(list(unit_conversion.keys()))
+        msg = "Invalid unit choice : should be {}".format(unit_available)
+        assert unit in unit_available, msg
+
+        # -- define good coordinates
+        if self.plane.upper() == 'XY':
+            u = x
+            v = y
+            w = z - self.axial_shift
+        elif self.plane.upper() == 'XZ':
+            u = x
+            v = z
+            w = -y + self.axial_shift
+        elif self.plane.upper() == 'YZ':
+            u = y
+            v = z
+            w = x - self.axial_shift
+
+        # -- compute (on turn)
+        Bu, Bv, Bw = mag_field_coil_xy(u, v, w,
+                                       radius=self.radius,
+                                       current=self.current)
+
+        # -- back to good coords
+        if self.plane.upper() == 'XY':
+            Bx = Bu
+            By = Bv
+            Bz = Bw
+        elif self.plane.upper() == 'XZ':
+            Bx = Bu
+            Bz = Bv
+            By = -Bw
+        elif self.plane.upper() == 'YZ':
+            By = Bu
+            Bz = Bv
+            Bx = Bw
+        # -- good units + all turns
+        Bx *= unit_conversion[unit] * self.n_turns
+        By *= unit_conversion[unit] * self.n_turns
+        Bz *= unit_conversion[unit] * self.n_turns
+
+        return Bx, By, Bz
 
 
 # -- TESTS
 if __name__ == '__main__':
     import matplotlib.pyplot as plt
 
+    # == magnetic field function mag_field_coil_xy()
     def B_coil(z, R, n, I):
         B_0 = csts.mu_0 * I * n / 2 / R
         alpha = np.arctan(z/R)
@@ -154,7 +200,7 @@ if __name__ == '__main__':
         plt.show()
 
     # - axis
-    if True:
+    if False:
         z = np.linspace(-10, 10, 500)
         x = 0
         y = 0
@@ -170,4 +216,150 @@ if __name__ == '__main__':
 
         plt.tight_layout()
         plt.legend()
+        plt.show()
+
+    # == Coil object
+    if False:
+        # field on axis, XY
+        z = np.linspace(-10, 10, 500)
+        x = 0
+        y = 0
+        z0 = -5
+        radius = 0.5
+        coil = SingleCoil(plane='xy',
+                          current=1,
+                          radius=radius,
+                          axial_shift=z0,
+                          n_turns=1)
+        Bx, By, Bz = coil.field(x, y, z, unit='G')
+        Bth = csts.mu_0 * radius ** 2 / 2 / (radius**2 + (z-z0)**2) ** (3/2)
+        Bth *= 1e4  # Gauss
+
+        plt.figure()
+        plt.plot(z, Bz, label='z')
+        plt.plot(z, Bx, label='x')
+        plt.plot(z, By, label='y')
+        plt.plot(z, Bth, dashes=[2, 2], color='k', label='th')
+
+        plt.tight_layout()
+        plt.legend()
+        plt.show()
+
+    if False:
+        # field on axis, YZ
+        x = np.linspace(-10, 10, 500)
+        x0 = +3
+        y = 0
+        z = 0
+        radius = 0.5
+        coil = SingleCoil(plane='yz',
+                          current=1,
+                          radius=radius,
+                          axial_shift=x0,
+                          n_turns=1)
+        Bx, By, Bz = coil.field(x, y, z, unit='G')
+        Bth = csts.mu_0 * radius ** 2 / 2 / (radius**2 + (x-x0)**2) ** (3/2)
+        Bth *= 1e4  # Gauss
+
+        plt.figure()
+        plt.plot(x, Bz, label='z')
+        plt.plot(x, Bx, label='x')
+        plt.plot(x, By, label='y')
+        plt.plot(x, Bth, dashes=[2, 2], color='k', label='th')
+
+        plt.tight_layout()
+        plt.legend()
+        plt.show()
+
+    if False:
+        # field on axis, XZ
+        y = np.linspace(-10, 10, 500)
+        y0 = +1.5
+        x = 0
+        z = 0
+        radius = 0.5
+        coil = SingleCoil(plane='xz',
+                          current=1,
+                          radius=radius,
+                          axial_shift=y0,
+                          n_turns=1)
+        Bx, By, Bz = coil.field(x, y, z, unit='G')
+        Bth = -csts.mu_0 * radius ** 2 / 2 / (radius**2 + (y-y0)**2) ** (3/2)
+        Bth *= 1e4  # Gauss
+
+        plt.figure()
+        plt.plot(y, Bz, label='z')
+        plt.plot(y, Bx, label='x')
+        plt.plot(y, By, label='y')
+        plt.plot(y, Bth, dashes=[2, 2], color='k', label='th')
+
+        plt.tight_layout()
+        plt.legend()
+        plt.show()
+
+    if True:
+        # 2D tests
+        # settings
+        x = np.linspace(-2, 2, 500)
+        y = np.linspace(-3, 3, 500)
+        x, y = np.meshgrid(x, y)
+        z = 1
+        radius = 1
+        axial_shift = 0
+        plane = 'yz'
+        # compute and plot
+        coil = SingleCoil(plane=plane,
+                          current=1,
+                          radius=radius,
+                          axial_shift=axial_shift,
+                          n_turns=100)
+
+        Bx, By, Bz = coil.field(x, y, z, unit='G')
+
+        B = np.sqrt(Bx**2 + Bz**2 + By**2)
+        print(np.max(B))
+        for Bi in [Bx, By, Bz]:
+            print(np.max(np.abs(Bi)))
+
+        fig, ax = plt.subplots(1, 1, figsize=(5, 5))
+        ax.streamplot(x, y, Bx, By, color='w')
+        ax.pcolormesh(x, y, np.sqrt(Bx**2 + Bz**2 + By**2), vmin=0, vmax=1)
+        ax.set_ylabel('Y')
+        ax.set_xlabel('X')
+        plt.show()
+
+    if False:
+        # Helmholtz test
+        # settings
+        x = np.linspace(-2, 2, 500)
+        z = np.linspace(-2, 2, 500)
+        x, z = np.meshgrid(x, z)
+        y = 0
+        radius = 1
+        axial_shift = 0
+        plane = 'yz'
+
+        # compute and plot
+        coil = SingleCoil(plane=plane,
+                          current=1,
+                          radius=radius,
+                          axial_shift=-0.5 * radius,
+                          n_turns=100)
+        # coil 1
+        Bx, By, Bz = coil.field(x, y, z, unit='G')
+        # coil 2
+        coil.axial_shift = - coil.axial_shift
+        # summ
+        Bx2, By2, Bz2 = coil.field(x, y, z, unit='G')
+        Bx += Bx2
+        By += By2
+        Bz += Bz2
+        B = np.sqrt(Bx**2 + Bz**2 + By**2)
+        print(np.max(B))
+        for Bi in [Bx, By, Bz]:
+            print(np.max(np.abs(Bi)))
+
+        fig, ax = plt.subplots(1, 1, figsize=(5, 5))
+        ax.streamplot(x, z, Bx, Bz, color='w')
+        ax.pcolormesh(x, z, np.sqrt(Bx**2 + Bz**2), vmin=0, vmax=1)
         plt.show()
