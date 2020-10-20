@@ -2,7 +2,7 @@
 '''
 Author   : alex
 Created  : 2020-10-19 09:06:24
-Modified : 2020-10-19 17:11:25
+Modified : 2020-10-20 09:04:45
 
 Comments : Implements the coils object, to compute coils magnetic fields
 '''
@@ -162,6 +162,58 @@ class SingleCoil():
         return Bx, By, Bz
 
 
+class CoilSet():
+    '''
+    A set of coils. Designed to be handled as a SingleCoil in a transparent way
+    '''
+    def __init__(self, coils_settings=[], label=''):
+        '''
+        Object initialization, sets parameters
+
+        Parameters
+        ----------
+        coils_settings : list, optional
+            List of dictionnaries, containing settings for the collection
+            of SingleCoil() constituting the CoilSet()
+        label : str, optional
+            Label of the CoilSet
+
+        '''
+        # -- initialize settings
+        # physical parameters
+        self.label = label  # number of turns
+        self.coil_list = []  # contains the coil collection
+
+        # -- populate coil list
+        self.update_list(coils_settings)
+
+    def reset(self):
+        self.coil_list = []
+
+    def update_list(self, coils_settings):
+        for cs in coils_settings:
+            coil = SingleCoil(**cs)
+            self.coil_list.append(coil)
+
+    def field(self, x, y, z, **kwargs):
+        '''
+        returns magnetic field at point (x,y,z)
+        '''
+        # initialize magentic fields
+        Bx = np.zeros_like(x * y * z, dtype=float)
+        By = np.zeros_like(x * y * z, dtype=float)
+        Bz = np.zeros_like(x * y * z, dtype=float)
+
+        # populate
+        for coil in self.coil_list:
+            bx, by, bz = coil.field(x, y, z, **kwargs)
+            Bx += bx
+            By += by
+            Bz += bz
+
+        return Bx, By, Bz
+
+
 # -- TESTS
 if __name__ == '__main__':
     import matplotlib.pyplot as plt
@@ -297,7 +349,7 @@ if __name__ == '__main__':
         plt.legend()
         plt.show()
 
-    if True:
+    if False:
         # 2D tests
         # settings
         x = np.linspace(-2, 2, 500)
@@ -328,7 +380,7 @@ if __name__ == '__main__':
         ax.set_xlabel('X')
         plt.show()
 
-    if False:
+    if True:
         # Helmholtz test
         # settings
         x = np.linspace(-2, 2, 500)
@@ -339,21 +391,19 @@ if __name__ == '__main__':
         axial_shift = 0
         plane = 'yz'
 
+        coil1 = {'plane': plane,
+                 'current': 1,
+                 'radius': radius,
+                 'axial_shift': -0.5*radius,
+                 'n_turns': 100
+                 }
+        coil2 = {k: v for k, v in coil1.items()}
+        coil2['axial_shift'] = -coil2['axial_shift']
+
         # compute and plot
-        coil = SingleCoil(plane=plane,
-                          current=1,
-                          radius=radius,
-                          axial_shift=-0.5 * radius,
-                          n_turns=100)
+        helm_coil = CoilSet([coil1, coil2], label='HC')
         # coil 1
-        Bx, By, Bz = coil.field(x, y, z, unit='G')
-        # coil 2
-        coil.axial_shift = - coil.axial_shift
-        # summ
-        Bx2, By2, Bz2 = coil.field(x, y, z, unit='G')
-        Bx += Bx2
-        By += By2
-        Bz += Bz2
+        Bx, By, Bz = helm_coil.field(x, y, z, unit='G')
         B = np.sqrt(Bx**2 + Bz**2 + By**2)
         print(np.max(B))
         for Bi in [Bx, By, Bz]:
