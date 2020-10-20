@@ -2,7 +2,7 @@
 '''
 Author   : alex
 Created  : 2020-10-13 17:28:20
-Modified : 2020-10-20 17:41:38
+Modified : 2020-10-20 18:05:42
 
 Comments : implements the Trap class, used for the calculation of optical
            dipole traps potential
@@ -138,8 +138,12 @@ class Trap():
                 n = len(name)
         return n
 
-    def _print_results(self, results, skip_if_null=[]):
+    def _print_results(self, results, skip_if_null=[],
+                       skip_name=[], skip_section=[]):
         for section, res in results.items():
+            # skip
+            if section in skip_section:
+                continue
             # title
             print(TITLE_STR % section)
             # parameters
@@ -147,6 +151,8 @@ class Trap():
             template = VAL_STR % ("{0:%i} = {1}" % n)  # set format
             for name, x in res.items():
                 # special cases
+                if name in skip_name:
+                    continue
                 if name in skip_if_null and x['val'] == 0:
                     continue
                 value = unit_str(x['val'], prec=3, unit=x['unit'])
@@ -431,60 +437,54 @@ class Trap():
 
         # -- analyze
         results = {}
+        mean = {'freq_x': [], 'freq_y': [], 'freq_z': [],
+                'x0': [], 'y0': [], 'z0': [], 'U0': []}
         for cut in ['xy', 'xz', 'yz']:
             # 2D polynomial fit
             p = polyfit2D(XX[cut][0], XX[cut][1], UU[cut],
                           n=4, print_full_res=False)
             p_sorted = sortp(p)
-            results[cut] = analyze_psort(p_sorted, unit=unit, m=self.atom.mass)
-            results[cut]['p'] = p
-            results[cut]['ps'] = p_sorted
+            # store 'raw' results
+            results[cut+'_raw'] = analyze_psort(p_sorted,
+                                                unit=unit,
+                                                m=self.atom.mass)
+            results[cut+'_raw']['p'] = p
+            results[cut+'_raw']['ps'] = p_sorted
+            # convert (for display)
+            rr = results[cut+'_raw']
+            r = {}
+            r['angle'] = {'val': rr['theta'], 'unit': 'rad'}
+            r['freq_u (~%s)' % cut[0]] = {'val': rr['freq_u'], 'unit': 'Hz'}
+            r['freq_v (~%s)' % cut[0]] = {'val': rr['freq_u'], 'unit': 'Hz'}
+            r['U0'] = {'val': rr['U0'], 'unit': unit}
+            r['center %s' % cut[0]] = {'val': rr['x0'], 'unit': 'm'}
+            r['center %s' % cut[1]] = {'val': rr['y0'], 'unit': 'm'}
+            results[cut.upper()] = r
+            # add to mean
+            mean['freq_%s' % cut[0]].append(rr['freq_u'])
+            mean['freq_%s' % cut[1]].append(rr['freq_v'])
+            mean['%s0' % cut[0]].append(rr['x0'])
+            mean['%s0' % cut[1]].append(rr['y0'])
+            mean['U0'].append(rr['U0'])
 
-        # -- display results
+        # -- mean
+        r = {}
+        for k in ['freq_x', 'freq_y', 'freq_z']:
+            fm = np.mean(mean[k])
+            r[k] = {'val': fm, 'unit': 'Hz'}
+        for k in ['x0', 'y0', 'z0']:
+            xm = np.mean(mean[k])
+            r[k] = {'val': xm, 'unit': 'm'}
+        r['U0'] = {'val': np.mean(mean['U0']), 'unit': unit}
+        results['mean'] = r
+
+        # -- print
         if print_result:
-            # format
-            title = '>> Results for %s cut'
-            res = '  + %s'
-            mean = {'freq_x': [], 'freq_y': [], 'freq_z': [],
-                    'x0': [], 'y0': [], 'z0': [], 'U0': []}
-            # display
-            for cut in ['xy', 'xz', 'yz']:
-                # get results
-                r = results[cut]
-                theta = r['theta']
-                theta_deg = theta * 180 / pi
-                freq_u = unit_str(r['freq_u'], 2, 'Hz')
-                freq_v = unit_str(r['freq_v'], 2, 'Hz')
-                U0 = '%.2g %s' % (r['U0'], unit)
-                x0 = '%.2g µm' % (r['x0'] * 1e6)
-                y0 = '%.2g µm' % (r['y0'] * 1e6)
-                # add to mean
-                mean['freq_%s' % cut[0]].append(r['freq_u'])
-                mean['freq_%s' % cut[1]].append(r['freq_v'])
-                mean['%s0' % cut[0]].append(r['x0'])
-                mean['%s0' % cut[1]].append(r['y0'])
-                mean['U0'].append(r['U0'])
-                # print
-                if not only_print_mean:
-                    print(title % cut.upper())
-                    print(res % 'angle       = %.2g rad (%.2g deg)' %
-                          (theta, theta_deg))
-                    print(res % 'freq_u (~%s) = %s' % (cut[0], freq_u))
-                    print(res % 'freq_v (~%s) = %s' % (cut[1], freq_v))
-                    print(res % 'U0          = %s' % U0)
-                    print(res % 'center %s   = %s' % (cut[0], x0))
-                    print(res % 'center %s   = %s' % (cut[1], y0))
-                    print('')
-            # mean
-            print('>> MEAN')
-            for k in ['freq_x', 'freq_y', 'freq_z']:
-                fm = np.mean(mean[k])
-                print(res % '%s  = %s' % (k, unit_str(fm, 2, 'Hz')))
-            for k in ['x0', 'y0', 'z0']:
-                xm = np.mean(mean[k])
-                print(res % '%s  = %.2g µm' % (k, xm))
-            print(res % 'U0   = %.2g %s' % (np.mean(mean['U0']), unit))
-            print('')
+            skip_section = ['xy_raw', 'xz_raw', 'yz_raw']
+            if only_print_mean:
+                for cut in ['xy', 'xz', 'yz']:
+                    skip_section.append(cut.upper())
+            self._print_results(results, skip_section=skip_section)
 
         # -- plot
         if plot_result:
@@ -496,12 +496,12 @@ class Trap():
                 ymult, ystr = unit_mult(Y.max(), 'm')
 
                 U = UU[cut]
-                Ufit = polyval2D(X, Y, results[cut]['p'])
+                Ufit = polyval2D(X, Y, results[cut+'_raw']['p'])
                 err = U - Ufit
                 errmax = np.max(np.abs(err))
-                theta = results[cut]['theta']
-                x0 = results[cut]['x0']
-                y0 = results[cut]['y0']
+                theta = results[cut+'_raw']['theta']
+                x0 = results[cut+'_raw']['x0']
+                y0 = results[cut+'_raw']['y0']
                 # - plot
                 # figure
                 fig, ax = plt.subplots(1, 3, figsize=figsize)
@@ -702,7 +702,7 @@ if __name__ == '__main__':
     coil_2['axial_shift'] = -coil_1['axial_shift']
     odt.add_coil_set([coil_1, coil_2], label='comp ODT')
     # odt.plot_potential(spatial_range=(1.5e-3, 500e-6, 500e-6))
-    # odt.analyze_freq()
-    odt.analyze_depth()
+    odt.analyze_freq(plot_result=True, only_print_mean=True)
+    # odt.analyze_depth()
     # res = odt.compute_theoretical_properties()
-    #print(res)
+    # print(res)
