@@ -2,7 +2,7 @@
 '''
 Author   : alex
 Created  : 2020-10-13 17:28:20
-Modified : 2020-10-20 10:28:29
+Modified : 2020-10-20 17:41:38
 
 Comments : implements the Trap class, used for the calculation of optical
            dipole traps potential
@@ -22,9 +22,14 @@ from coil import SingleCoil, CoilSet
 from utils import unit_mult, unit_str, \
     polyval2D, polyfit2D, sortp, analyze_psort
 
-# == define atom data dictionnary
+
+# == global variables
+TITLE_STR = '>> %s'
+VAL_STR = ' + %s'
+SEP_STR = '-' * 30
 
 
+# == implement trap object
 class Trap():
     '''
     Defines pulse shapes (temporal)
@@ -126,6 +131,28 @@ class Trap():
             return potential
 
     # -- analyze
+    def _get_longer_name(self, res):
+        n = 0
+        for name in res.keys():
+            if len(name) > n:
+                n = len(name)
+        return n
+
+    def _print_results(self, results, skip_if_null=[]):
+        for section, res in results.items():
+            # title
+            print(TITLE_STR % section)
+            # parameters
+            n = self._get_longer_name(res)  # get longer name (to align)
+            template = VAL_STR % ("{0:%i} = {1}" % n)  # set format
+            for name, x in res.items():
+                # special cases
+                if name in skip_if_null and x['val'] == 0:
+                    continue
+                value = unit_str(x['val'], prec=3, unit=x['unit'])
+                print(template.format(name, value))
+            # separator
+            print(SEP_STR)
 
     def compute_theoretical_properties(self, print_result=True):
         '''
@@ -151,13 +178,6 @@ class Trap():
             omega_ax = np.sqrt(2 * U0 / m / zR ** 2)  # axial trap freq.
             f_rad = omega_rad / 2 / pi
             f_ax = omega_ax / 2 / pi
-            # - print
-            if print_result:
-                print('>> %s' % beam.label)
-                print('  + depth    = %s' % unit_str(U0_K, prec=2, unit='K'))
-                print('  + freq rad = %s' % unit_str(f_rad, prec=2, unit='Hz'))
-                print('  + freq ax  = %s' % unit_str(f_ax, prec=2, unit='Hz'))
-                print('-'*30)
             # - store
             r = {'depth': {'val': U0_K, 'unit': 'K'},
                  'f_rad': {'val': f_rad, 'unit': 'Hz'},
@@ -194,27 +214,6 @@ class Trap():
                 gradB = gradB * 1e4 / 1e2  # G / cm
                 grad[ax] += gradB
 
-            # - print
-            if print_result:
-                print('>> %s' % coil.label)
-                print('  + Bx0  = %s' % unit_str(B0[0], prec=2, unit='G'))
-                print('  + By0  = %s' % unit_str(B0[1], prec=2, unit='G'))
-                print('  + Bz0  = %s' % unit_str(B0[2], prec=2, unit='G'))
-                for ax in ['x', 'y', 'z']:
-                    if grad[ax] != 0:
-                        # value (in G/cm)
-                        val = unit_str(grad[ax], prec=3, unit='G/cm')
-                        # value (in K/cm)
-                        gJ = self.atom.lande_g_factor
-                        mJ = self.atom.zeeman_state
-                        mu_B = csts.value('Bohr magneton')
-                        grad_K_per_mm = grad[ax] * mu_B * mJ * gJ * 1e-4 / 10 \
-                            / csts.k
-                        val_K = unit_str(grad_K_per_mm, prec=3, unit='K/mm')
-                        # print
-                        print('  + grad %s  = %s' % (ax, val))
-                        print('            = %s' % val_K)
-                print('-'*30)
             # - store
             r = {'Bx0': {'val': B0[0], 'unit': 'G'},
                  'By0': {'val': B0[1], 'unit': 'G'},
@@ -225,20 +224,26 @@ class Trap():
             results[coil.label] = r
 
         # - reminder
-        if print_result:
+        if self.coils:
             # compute
             gJ = self.atom.lande_g_factor
             mu_B = csts.value('Bohr magneton')
             B0 = 1e-4
-            MHZ_per_Gauss = gJ * mu_B * B0 / csts.h * 1e-6
-            µK_per_Gauss = gJ * mu_B * B0 / csts.k * 1e6
-            µK_per_MHz = csts.h / csts.k * 1e12
-            # print
-            print('>> REMINDER')
-            print('  + 1G   = %.2f MHz' % MHZ_per_Gauss)
-            print('  + 1G   = %.0f µK' % µK_per_Gauss)
-            print('  + 1MHz = %.0f µK' % µK_per_MHz)
-            print('-'*30)
+            HZ_per_Gauss = gJ * mu_B * B0 / csts.h
+            K_per_Gauss = gJ * mu_B * B0 / csts.k
+            K_per_MHz = csts.h / csts.k * 1e6
+            r = {'1G (1)': {'val': HZ_per_Gauss, 'unit': 'Hz'},
+                 '1G (2)': {'val': K_per_Gauss, 'unit': 'K'},
+                 '1MHz':   {'val': K_per_MHz, 'unit': 'K'}}
+            # store
+            results['REMINDER'] = r
+
+        # - print
+        if print_result:
+            self._print_results(results, skip_if_null=['grad_x',
+                                                       'grad_y',
+                                                       'grad_z'])
+
         return results
 
     def _istrapping(self, U0, U):
@@ -328,14 +333,15 @@ class Trap():
             else:
                 Ulost = brentq(self._istrapping, a, b,
                                args=(U), rtol=0.001, xtol=0.001)
-            results[cut] = Ulost - Umin
+
+            r = {'Umin':  {'val': Umin, 'unit': unit},
+                 'Ulost': {'val': Ulost, 'unit': unit},
+                 'depth': {'val': Ulost - Umin, 'unit': unit}}
+            results[cut.upper()] = r
 
         #  -- display
         if print_result:
-            print('>> Depth analysis results:')
-            for k, v in results.items():
-                print(' + %s cut  = %.2g %s' % (k.upper(), v, unit))
-            print('')
+            self._print_results(results)
 
         # -- plot
         if plot_result:
@@ -353,7 +359,7 @@ class Trap():
                                      **style2D)
                 fig.colorbar(pcm, ax=cax)
                 # plot escaping contour
-                Ulost = results[cut] + Umin
+                Ulost = results[cut.upper()]['Ulost']['val']
                 contours = find_contours(U, Ulost)
                 for c in contours:
                     cax.plot(xmult * x[cut[0]][np.uint(c[:, 1])],
@@ -697,5 +703,6 @@ if __name__ == '__main__':
     odt.add_coil_set([coil_1, coil_2], label='comp ODT')
     # odt.plot_potential(spatial_range=(1.5e-3, 500e-6, 500e-6))
     # odt.analyze_freq()
-    # odt.analyze_depth()
-    res = odt.compute_theoretical_properties()
+    odt.analyze_depth()
+    # res = odt.compute_theoretical_properties()
+    #print(res)
