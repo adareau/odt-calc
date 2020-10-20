@@ -2,7 +2,7 @@
 '''
 Author   : alex
 Created  : 2020-10-13 17:28:20
-Modified : 2020-10-19 18:05:17
+Modified : 2020-10-20 10:28:29
 
 Comments : implements the Trap class, used for the calculation of optical
            dipole traps potential
@@ -18,7 +18,7 @@ from scipy.optimize import brentq
 # local
 from atom import Helium
 from laser import GaussianBeam
-from coil import SingleCoil
+from coil import SingleCoil, CoilSet
 from utils import unit_mult, unit_str, \
     polyval2D, polyfit2D, sortp, analyze_psort
 
@@ -50,6 +50,10 @@ class Trap():
 
     def add_coil(self, **kwargs):
         new_coil = SingleCoil(**kwargs)
+        self.coils.append(new_coil)
+
+    def add_coil_set(self, coils_settings=[], label=''):
+        new_coil = CoilSet(coils_settings, label)
         self.coils.append(new_coil)
 
     def reset_coils(self):
@@ -123,11 +127,12 @@ class Trap():
 
     # -- analyze
 
-    def compute_theoretical_properties(self):
+    def compute_theoretical_properties(self, print_result=True):
         '''
         Computes and prints the theoretical properties (depth and frequencies)
         of each individual laser / coils.
         '''
+        results = {}
         # -- loop on lasers
         for beam in self.lasers:
             # - compute
@@ -147,22 +152,94 @@ class Trap():
             f_rad = omega_rad / 2 / pi
             f_ax = omega_ax / 2 / pi
             # - print
-            print('>> Laser %s' % beam.label)
-            print('  + depth    = %s' % unit_str(U0_K, prec=2, unit='K'))
-            print('  + freq rad = %s' % unit_str(f_rad, prec=2, unit='Hz'))
-            print('  + freq ax  = %s' % unit_str(f_ax, prec=2, unit='Hz'))
-            print('')
+            if print_result:
+                print('>> %s' % beam.label)
+                print('  + depth    = %s' % unit_str(U0_K, prec=2, unit='K'))
+                print('  + freq rad = %s' % unit_str(f_rad, prec=2, unit='Hz'))
+                print('  + freq ax  = %s' % unit_str(f_ax, prec=2, unit='Hz'))
+                print('-'*30)
+            # - store
+            r = {'depth': {'val': U0_K, 'unit': 'K'},
+                 'f_rad': {'val': f_rad, 'unit': 'Hz'},
+                 'f_ax': {'val': f_ax, 'unit': 'Hz'}}
+            results[beam.label] = r
 
         # -- loop on coils
-        # TODO
-        '''
-        # -- theorie
-        B0 = csts.mu_0 * I * n / 2 / R
-        Bc = B0 * (1 + (z0/R)**2) ** (-3/2)
-        grad = -3 * Bc * z0 / R**2 / (1 + (z0/R)**2)
-        '''
+        for coil in self.coils:
+            # - compute
+            B0 = coil.field(0, 0, 0, unit='G')
+            grad = {'x': 0, 'y': 0, 'z': 0}
+            ax_list = {'xy': 'z', 'xz': 'y', 'yz': 'x'}
+            if isinstance(coil, CoilSet):
+                for c in coil.coil_list:
+                    ax = ax_list[c.plane.lower()]
+                    z0 = c.axial_shift  # m
+                    R = c.radius  # m
+                    curr = c.current  # A
+                    n = c.n_turns
+                    Bmax = csts.mu_0 * curr * n / 2 / R  # T
+                    Bc = Bmax * (1 + (z0 / R)**2) ** (-3 / 2)  # T
+                    gradB = -3 * Bc * z0 / R**2 / (1 + (z0 / R)**2)  # T / m
+                    gradB = gradB * 1e4 / 1e2  # G / cm
+                    grad[ax] += gradB
+            else:
+                ax = ax_list[coil.plane.lower()]
+                z0 = coil.axial_shift  # m
+                R = coil.radius  # m
+                curr = coil.current  # A
+                n = coil.n_turns
+                Bmax = csts.mu_0 * curr * n / 2 / R  # T
+                Bc = Bmax * (1 + (z0 / R)**2) ** (-3 / 2)  # T
+                gradB = -3 * Bc * z0 / R**2 / (1 + (z0 / R)**2)  # T / m
+                gradB = gradB * 1e4 / 1e2  # G / cm
+                grad[ax] += gradB
 
-        pass
+            # - print
+            if print_result:
+                print('>> %s' % coil.label)
+                print('  + Bx0  = %s' % unit_str(B0[0], prec=2, unit='G'))
+                print('  + By0  = %s' % unit_str(B0[1], prec=2, unit='G'))
+                print('  + Bz0  = %s' % unit_str(B0[2], prec=2, unit='G'))
+                for ax in ['x', 'y', 'z']:
+                    if grad[ax] != 0:
+                        # value (in G/cm)
+                        val = unit_str(grad[ax], prec=3, unit='G/cm')
+                        # value (in K/cm)
+                        gJ = self.atom.lande_g_factor
+                        mJ = self.atom.zeeman_state
+                        mu_B = csts.value('Bohr magneton')
+                        grad_K_per_mm = grad[ax] * mu_B * mJ * gJ * 1e-4 / 10 \
+                            / csts.k
+                        val_K = unit_str(grad_K_per_mm, prec=3, unit='K/mm')
+                        # print
+                        print('  + grad %s  = %s' % (ax, val))
+                        print('            = %s' % val_K)
+                print('-'*30)
+            # - store
+            r = {'Bx0': {'val': B0[0], 'unit': 'G'},
+                 'By0': {'val': B0[1], 'unit': 'G'},
+                 'Bz0': {'val': B0[2], 'unit': 'G'},
+                 'grad_x': {'val': grad['x'], 'unit': 'G/cm'},
+                 'grad_y': {'val': grad['y'], 'unit': 'G/cm'},
+                 'grad_z': {'val': grad['z'], 'unit': 'G/cm'}}
+            results[coil.label] = r
+
+        # - reminder
+        if print_result:
+            # compute
+            gJ = self.atom.lande_g_factor
+            mu_B = csts.value('Bohr magneton')
+            B0 = 1e-4
+            MHZ_per_Gauss = gJ * mu_B * B0 / csts.h * 1e-6
+            µK_per_Gauss = gJ * mu_B * B0 / csts.k * 1e6
+            µK_per_MHz = csts.h / csts.k * 1e12
+            # print
+            print('>> REMINDER')
+            print('  + 1G   = %.2f MHz' % MHZ_per_Gauss)
+            print('  + 1G   = %.0f µK' % µK_per_Gauss)
+            print('  + 1MHz = %.0f µK' % µK_per_MHz)
+            print('-'*30)
+        return results
 
     def _istrapping(self, U0, U):
         '''
@@ -586,7 +663,7 @@ class Trap():
 if __name__ == '__main__':
     odt = Trap()
     # PDH : aller
-    power = 6
+    power = 4.8
     odt.add_laser(waist_value=135e-6,
                   power=power,
                   theta=pi / 2,  # i.e. in horizontal plane
@@ -600,16 +677,25 @@ if __name__ == '__main__':
                   phi=-9 * pi / 180,
                   label='PDH (retour)')
 
-    # magnetic
-    odt.magnetic_field_offset = (4e-4, 0, 0)
+    # gradient coil
+    odt.magnetic_field_offset = (0, 0, 0)
     odt.add_coil(plane='yz',
-                 radius=10e-2,
+                 radius=15e-2,
                  axial_shift=30e-2,
-                 current=5,
+                 current=1,
                  n_turns=100,
                  label='gradient coil')
 
-    odt.plot_potential(spatial_range=(1.5e-3, 500e-6, 500e-6))
+    # bias coil
+    coil_1 = {'plane': 'yz',
+              'radius': 10e-2,
+              'axial_shift': 20e-2,
+              'n_turns': 200,
+              'current': 2}
+    coil_2 = {k: v for k, v in coil_1.items()}
+    coil_2['axial_shift'] = -coil_1['axial_shift']
+    odt.add_coil_set([coil_1, coil_2], label='comp ODT')
+    # odt.plot_potential(spatial_range=(1.5e-3, 500e-6, 500e-6))
     # odt.analyze_freq()
-    odt.analyze_depth()
-    # odt.compute_theoretical_properties()
+    # odt.analyze_depth()
+    res = odt.compute_theoretical_properties()
