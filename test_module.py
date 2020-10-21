@@ -2,7 +2,7 @@
 '''
 Author   : Alexandre
 Created  : 2020-10-21 08:33:26
-Modified : 2020-10-21 08:53:40
+Modified : 2020-10-21 15:44:46
 
 Comments : testing odtcalc module
 '''
@@ -45,8 +45,8 @@ coil_1 = {'plane': 'yz',
           'current': 2}
 coil_2 = {k: v for k, v in coil_1.items()}
 coil_2['axial_shift'] = -coil_1['axial_shift']
-odt.add_coil_set([coil_1, coil_2], label='comp ODT')
-# odt.plot_potential(spatial_range=(1.5e-3, 500e-6, 500e-6))
+#odt.add_coil_set([coil_1, coil_2], label='comp ODT')
+odt.plot_potential(spatial_range=(1.5e-3, 500e-6, 500e-6))
 odt.analyze_freq(plot_result=True, only_print_mean=True)
 # odt.analyze_depth()
 # res = odt.compute_theoretical_properties()

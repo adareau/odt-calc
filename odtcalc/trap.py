@@ -2,7 +2,7 @@
 '''
 Author   : alex
 Created  : 2020-10-13 17:28:20
-Modified : 2020-10-21 13:57:56
+Modified : 2020-10-21 15:47:07
 
 Comments : implements the Trap class, used for the calculation of optical
            dipole traps potential
@@ -122,7 +122,7 @@ class Trap():
         # add gravity
         if self.gravity:
             m = self.atom.mass
-            gravity_potential = m * csts.g * Z
+            gravity_potential = m * csts.g * Z + 0 * X + 0 * Y
             potential += mult * gravity_potential
             if yield_each_contribution:
                 individual_potentials['gravity'] = mult * gravity_potential
