@@ -2,7 +2,7 @@
 '''
 Author   : Alexandre
 Created  : 2020-10-21 08:33:26
-Modified : 2020-10-21 08:38:41
+Modified : 2020-10-21 08:53:40
 
 Comments : testing odtcalc module
 '''
